@@ -90,27 +90,49 @@ app.post('/webhook/tn/order', async (req, res) => {
 
 // ---- FLUJO B: cambio de stock en Dolibarr -> push a TN ----
 // Dolibarr (modulo Webhook) postea aca. Anti-loop: comparar antes de pushear.
+// Extrae [{ref, stock}] del payload del trigger Dolibarr, segun el evento.
+async function extractStockChanges(body) {
+  const trigger = body.triggercode;
+  const obj = body.object;
+  if (!obj) return [];
+
+  if (trigger === 'PRODUCT_MODIFY') {
+    if (!obj.ref) return [];
+    return [{ ref: obj.ref, stock: Number(obj.stock_reel ?? 0) }];
+  }
+
+  if (trigger === 'BILL_VALIDATE') {
+    const lines = obj.lines || [];
+    const out = [];
+    for (const line of lines) {
+      if (!line.fk_product) continue;
+      const prod = await doli.getProductById(line.fk_product);
+      if (!prod || !prod.ref) continue;
+      out.push({ ref: prod.ref, stock: Number(prod.stock_reel ?? 0) });
+    }
+    return out;
+  }
+
+  return [];
+}
+
 app.post('/webhook/doli/stock', async (req, res) => {
   res.sendStatus(200);
-  console.log('[B] payload recibido:', JSON.stringify(req.body));
   try {
-    // El payload de Dolibarr varia segun trigger; intentamos sacar ref + stock.
-    const ref = req.body.ref || req.body.product_ref;
-    if (!ref) { console.warn('[B] webhook sin ref'); return; }
+    const changes = await extractStockChanges(req.body);
+    if (!changes.length) { console.warn(`[B] sin cambios procesables (${req.body.triggercode})`); return; }
 
-    const prod = await doli.getProductByRef(ref);
-    if (!prod) { console.warn(`[B] ref ${ref} no esta en Dolibarr`); return; }
-    const doliStock = await doli.getStock(prod.id);
+    for (const { ref, stock: doliStock } of changes) {
+      const v = await findVariantBySku(ref);
+      if (!v) { console.warn(`[B] SKU ${ref} no existe en TN`); continue; }
 
-    const v = await findVariantBySku(ref);
-    if (!v) { console.warn(`[B] SKU ${ref} no existe en TN`); return; }
-
-    if (Number(v.stock) === Number(doliStock)) {
-      console.log(`[B] ref ${ref} ya en ${doliStock}, no push (corta loop)`);
-      return;
+      if (Number(v.stock) === doliStock) {
+        console.log(`[B] ref ${ref} ya en ${doliStock}, no push (corta loop)`);
+        continue;
+      }
+      await setVariantStock(v.productId, v.variantId, doliStock);
+      console.log(`[B] ref ${ref}: TN ${v.stock} -> ${doliStock}`);
     }
-    await setVariantStock(v.productId, v.variantId, doliStock);
-    console.log(`[B] ref ${ref}: TN ${v.stock} -> ${doliStock}`);
   } catch (e) {
     console.error('[B] ERROR:', e.message);
   }
