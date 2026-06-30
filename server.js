@@ -138,4 +138,34 @@ app.post('/webhook/doli/stock', async (req, res) => {
   }
 });
 
+// ---- Sync periodica de respaldo: barre TODO el catalogo Dolibarr -> TN ----
+// Cubre casos que no disparan webhook (correccion manual de stock, recepcion de compras, etc).
+const SYNC_INTERVAL_MS = Number(process.env.SYNC_INTERVAL_MIN || 30) * 60 * 1000;
+
+async function fullStockSync() {
+  console.log('[sync] iniciando barrido completo de stock');
+  let pushed = 0, checked = 0;
+  try {
+    const products = await doli.listAllProducts();
+    for (const { ref, stock: doliStock } of products) {
+      checked++;
+      try {
+        const v = await findVariantBySku(ref);
+        if (!v) continue;
+        if (Number(v.stock) === doliStock) continue;
+        await setVariantStock(v.productId, v.variantId, doliStock);
+        pushed++;
+        console.log(`[sync] ref ${ref}: TN ${v.stock} -> ${doliStock}`);
+      } catch (e) {
+        console.error(`[sync] ref ${ref} ERROR:`, e.message);
+      }
+    }
+  } catch (e) {
+    console.error('[sync] ERROR general:', e.message);
+  }
+  console.log(`[sync] fin: ${checked} productos revisados, ${pushed} actualizados`);
+}
+
+setInterval(fullStockSync, SYNC_INTERVAL_MS);
+
 app.listen(PORT, () => console.log(`connector escuchando en :${PORT}`));
