@@ -92,6 +92,7 @@ app.post('/webhook/tn/order', async (req, res) => {
 // Dolibarr (modulo Webhook) postea aca. Anti-loop: comparar antes de pushear.
 app.post('/webhook/doli/stock', async (req, res) => {
   res.sendStatus(200);
+  console.log('[B] payload recibido:', JSON.stringify(req.body));
   try {
     // El payload de Dolibarr varia segun trigger; intentamos sacar ref + stock.
     const ref = req.body.ref || req.body.product_ref;
