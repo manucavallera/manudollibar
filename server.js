@@ -5,6 +5,7 @@ import * as doli from './lib/dolibarr.js';
 import { saveAuth, isOrderProcessed, markOrderProcessed } from './lib/store.js';
 
 const app = express();
+app.set('trust proxy', 1);
 // Guardamos el body crudo para verificar HMAC de TN.
 app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
 
