@@ -1,6 +1,6 @@
 import express from 'express';
 import crypto from 'crypto';
-import { exchangeCode, getOrder, findVariantBySku, setVariantStock } from './lib/tiendanube.js';
+import { exchangeCode, getOrder, findVariantBySku, setVariantStock, registerWebhook } from './lib/tiendanube.js';
 import * as doli from './lib/dolibarr.js';
 import { saveAuth, isOrderProcessed, markOrderProcessed } from './lib/store.js';
 
@@ -22,6 +22,15 @@ app.get('/oauth/callback', async (req, res) => {
     const data = await exchangeCode(code);
     saveAuth(data.access_token, data.user_id);
     console.log(`[oauth] autorizado store ${data.user_id}, scopes: ${data.scope}`);
+
+    const callbackUrl = `${req.protocol}://${req.get('host')}/webhook/tn/order`;
+    try {
+      await registerWebhook('order/paid', callbackUrl);
+      console.log(`[oauth] webhook order/paid registrado -> ${callbackUrl}`);
+    } catch (e) {
+      console.error('[oauth] no se pudo registrar webhook:', e.message);
+    }
+
     res.send('App conectada OK. Token guardado. Ya podes cerrar esta pestaña.');
   } catch (e) {
     console.error('[oauth]', e.message);
